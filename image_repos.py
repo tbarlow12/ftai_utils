@@ -3,6 +3,7 @@ from os import listdir
 from os.path import isfile, join
 import threading
 from azure.storage.blob.blockblobservice import BlockBlobService
+import pyodbc
 import pdb
 
 def files_in_dir(dir):
@@ -84,10 +85,27 @@ class UserImages(ImageRepo):
         for thread in threads:
             thread.join()
 
-
 class KaggleImages(ImageRepo):
 
     source_container = 'test'
 
+class SQLWrapper(object):
+
+    def __init__(self):
+        self.server = os.environ['SQL_SERVER']
+        self.database = os.environ['SQL_DB']
+        self.username = os.environ['SQL_USERNAME']
+        self.password = os.environ['SQL_PASSWORD']
+        self.driver = '{ODBC Driver 13 for SQL Server}'
+
+    def execute_read(self, command):
+
+        cnxn = pyodbc.connect('DRIVER='+self.driver+';SERVER='+self.server+';PORT=1443;DATABASE='+self.database+';UID='+self.username+';PWD='+ self.password)
+        cursor = cnxn.cursor()
+        cursor.execute(command)
+        row = cursor.fetchone()
+        while row:
+            print(str(row))
+            row = cursor.fetchone()
 
     
