@@ -4,6 +4,7 @@ from os.path import isfile, join
 import threading
 from azure.storage.blob.blockblobservice import BlockBlobService
 import pyodbc
+import datetime
 import pdb
 
 def files_in_dir(dir):
@@ -68,6 +69,18 @@ class UserImages(ImageRepo):
     source_container = 'approved-images-dev'
     dest_container = 'processed-images-dev'
 
+    def mark_blob_processed(self, guid):
+        self.sql_service.execute(
+            'UPDATE images \
+            set container={}, \
+            process_dt={}, \
+            processed=1 \
+            WHERE id={}'.format(
+               self.dest_container,
+               datetime.datetime.now(),
+               guid
+            ))
+
     def image_processed(self, file_name):
         self.move_blob(
             local_to_blob_name(file_name), 
@@ -85,11 +98,17 @@ class UserImages(ImageRepo):
         for thread in threads:
             thread.join()
 
+    def __init__(self):
+        account = os.environ['BLOB_ACCOUNT_NAME']
+        key = os.environ['BLOB_ACCOUNT_KEY']
+        self.blob_service = BlockBlobService(account, key)  
+        self.sql_service = SQLService()
+
 class KaggleImages(ImageRepo):
 
     source_container = 'test'
 
-class SQLWrapper(object):
+class SQLService(object):
 
     def __init__(self):
         self.server = os.environ['SQL_SERVER']
@@ -98,7 +117,7 @@ class SQLWrapper(object):
         self.password = os.environ['SQL_PASSWORD']
         self.driver = '{ODBC Driver 13 for SQL Server}'
 
-    def execute_read(self, command):
+    def execute(self, command):
 
         cnxn = pyodbc.connect('DRIVER='+self.driver+';SERVER='+self.server+';PORT=1443;DATABASE='+self.database+';UID='+self.username+';PWD='+ self.password)
         cursor = cnxn.cursor()
@@ -107,5 +126,6 @@ class SQLWrapper(object):
         while row:
             print(str(row))
             row = cursor.fetchone()
+        cnxn.close()
 
     
