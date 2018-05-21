@@ -70,6 +70,10 @@ class ImageNetImages(ImageRepo):
 
     source_container = 'image-net'
 
+class KaggleImages(ImageRepo):
+
+    source_container = 'kaggle'
+
 class FTAI_Images(ImageRepo):
 
     source_container = 'approved-images-dev'
@@ -112,9 +116,7 @@ class FTAI_Images(ImageRepo):
         self.blob_service = BlockBlobService(account, key)  
         self.sql_service = SQLService()
 
-class KaggleImages(ImageRepo):
 
-    source_container = 'test'
 
 class SQLService(object):
 
@@ -126,7 +128,6 @@ class SQLService(object):
         self.driver = '{ODBC Driver 13 for SQL Server}'
         self.cnxn = None
         self.cursor = None
-
 
     def get_cursor(self):
         if self.cnxn is None or self.cursor is None:
