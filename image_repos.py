@@ -7,14 +7,16 @@ import pyodbc
 import datetime
 import pdb
 
+debug = False
+
 def files_in_dir(dir):
     return [f for f in listdir(dir) if isfile(join(dir, f))]
 
 def blob_name_to_local(blob_name):
-    return blob_name.replace('/', '-')
+    return blob_name.replace('/', '---')
 
 def local_to_blob_name(local):
-    return local.replace('-', '/')
+    return local.replace('---', '/')
 
 class ImageRepo(object):
 
@@ -44,11 +46,15 @@ class ImageRepo(object):
         blobs_in_container = self.blob_service.list_blobs(container_name, prefix=tag_prefix)
         threads = []
         for blob in blobs_in_container:
-            t = threading.Thread(target=self.download_image, args=(blob.name, dest_path, container_name,))
-            threads.append(t)
-            t.start()
-        for thread in threads:
-            thread.join()
+            if debug:
+                self.download_image(blob.name, dest_path, container_name)
+            else:
+                t = threading.Thread(target=self.download_image, args=(blob.name, dest_path, container_name,))
+                threads.append(t)
+                t.start()
+        if not debug:
+            for thread in threads:
+                thread.join()
 
     def move_blob(self, blob_name, from_container, to_container):
         blob_url = self.blob_service.make_blob_url(from_container, blob_name)
@@ -60,43 +66,45 @@ class ImageRepo(object):
         key = os.environ['BLOB_ACCOUNT_KEY']
         self.blob_service = BlockBlobService(account, key)    
 
-class ImageNet(ImageRepo):
+class ImageNetImages(ImageRepo):
 
     source_container = 'image-net'
 
-class UserImages(ImageRepo):
+class FTAI_Images(ImageRepo):
 
     source_container = 'approved-images-dev'
     dest_container = 'processed-images-dev'
 
     def mark_blob_processed(self, guid):
-        self.sql_service.execute(
-            'UPDATE images \
-            set container={}, \
-            process_dt={}, \
-            processed=1 \
-            WHERE id={}'.format(
-               self.dest_container,
-               datetime.datetime.now(),
-               guid
-            ))
+        cursor = self.sql_service.get_cursor()
+        cursor.execute('''
+            UPDATE images 
+            set container=?, 
+            process_dt=?, 
+            processed=1 
+            WHERE id=?
+        ''', 
+            self.dest_container, 
+            datetime.datetime.now(), 
+            guid
+        )
+        self.sql_service.cnxn.commit()
 
     def image_processed(self, file_name):
+        blob_name = local_to_blob_name(file_name)
         self.move_blob(
-            local_to_blob_name(file_name), 
+            blob_name,
             self.source_container, 
             self.dest_container)
+        self.mark_blob_processed(
+            blob_name.split('/')[1].split('.')[0]
+        )
 
     def dir_processed(self, dir):
         files = files_in_dir(dir)
-        threads = []
         for f in files:
             blob_name = local_to_blob_name(f)
-            t = threading.Thread(target=self.image_processed, args=blob_name,)
-            threads.append(t)
-            t.start()
-        for thread in threads:
-            thread.join()
+            self.image_processed(blob_name)
 
     def __init__(self):
         account = os.environ['BLOB_ACCOUNT_NAME']
@@ -116,16 +124,12 @@ class SQLService(object):
         self.username = os.environ['SQL_USERNAME']
         self.password = os.environ['SQL_PASSWORD']
         self.driver = '{ODBC Driver 13 for SQL Server}'
+        self.cnxn = None
+        self.cursor = None
 
-    def execute(self, command):
 
-        cnxn = pyodbc.connect('DRIVER='+self.driver+';SERVER='+self.server+';PORT=1443;DATABASE='+self.database+';UID='+self.username+';PWD='+ self.password)
-        cursor = cnxn.cursor()
-        cursor.execute(command)
-        row = cursor.fetchone()
-        while row:
-            print(str(row))
-            row = cursor.fetchone()
-        cnxn.close()
-
-    
+    def get_cursor(self):
+        if self.cnxn is None or self.cursor is None:
+            self.cnxn = pyodbc.connect('DRIVER='+self.driver+';SERVER='+self.server+';PORT=1443;DATABASE='+self.database+';UID='+self.username+';PWD='+ self.password)
+            self.cursor = self.cnxn.cursor()
+        return self.cursor
